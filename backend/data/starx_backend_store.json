@@ -1,6 +1,6 @@
 {
   "config": {
-    "jwtSecret": "8adb05f78e7a4b059d38ec6792fe2905f00e08fec82f6d9173a79e430f83d038",
+    "jwtSecret": "starx_production_jwt_secret_key_987654321_secure",
     "backendPublicUrl": "http://10.0.2.2:3000",
     "defaultFromAddress": "test@starx.app"
   },
@@ -8,5 +8,5 @@
   "emails": {},
   "drafts": {},
   "processedWebhookEvents": [],
-  "lastSyncTimestamp": "2026-11-11T15:36:28.749Z"
+  "lastSyncTimestamp": "2026-11-11T18:24:08.270Z"
 }

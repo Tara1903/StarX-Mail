@@ -76,6 +76,7 @@ export class StorageService {
           config: {
             ...defaultState.config,
             ...(parsed.config || {}),
+            jwtSecret: env.JWT_SECRET || parsed.config?.jwtSecret,
             resendApiKey: env.RESEND_API_KEY || parsed.config?.resendApiKey,
           },
         };
@@ -305,7 +306,7 @@ export class StorageService {
   }
 
   public getJwtSecret(): string {
-    return this.state.config.jwtSecret || env.JWT_SECRET;
+    return env.JWT_SECRET || this.state.config.jwtSecret || 'starx_production_jwt_secret_key_987654321_secure';
   }
 
   public getWebhookSigningSecret(): string | undefined {
