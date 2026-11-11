@@ -189,8 +189,96 @@ export class StorageService {
     }
   }
 
-  public getResendApiKey(): string | undefined {
+  public async getResendApiKey(accountId?: string): Promise<string | undefined> {
+    if (this.state.config.resendApiKey) {
+      return this.state.config.resendApiKey;
+    }
+
+    if (supabase) {
+      try {
+        let query = supabase.from('mail_accounts').select('*');
+        if (accountId) {
+          query = query.eq('id', accountId);
+        } else {
+          query = query.order('created_at', { ascending: false }).limit(1);
+        }
+        const { data, error } = await query;
+        if (!error && data && data.length > 0) {
+          const row = data[0];
+          if (row.resend_api_key_encrypted && row.resend_api_key_iv && row.resend_api_key_tag) {
+            const decrypted = decryptData(
+              row.resend_api_key_encrypted,
+              row.resend_api_key_iv,
+              row.resend_api_key_tag
+            );
+            this.state.config.resendApiKey = decrypted;
+            return decrypted;
+          }
+        }
+      } catch (err) {
+        logger.error({ err }, 'Failed to fetch and decrypt Resend API key on demand');
+      }
+    }
+
+    return env.RESEND_API_KEY;
+  }
+
+  public getResendApiKeySync(): string | undefined {
     return this.state.config.resendApiKey || env.RESEND_API_KEY;
+  }
+
+  public async getAccountAsync(accountId?: string): Promise<AccountInfo | null> {
+    if (this.state.account && (!accountId || this.state.account.id === accountId)) {
+      return this.state.account;
+    }
+
+    if (supabase) {
+      try {
+        let query = supabase.from('mail_accounts').select('*');
+        if (accountId) {
+          query = query.eq('id', accountId);
+        } else {
+          query = query.order('created_at', { ascending: false }).limit(1);
+        }
+        const { data, error } = await query;
+        if (!error && data && data.length > 0) {
+          const row = data[0];
+          const { data: inboxes } = await supabase
+            .from('mail_inboxes')
+            .select('*')
+            .eq('account_id', row.id);
+
+          const mappedInboxes: InboxInfo[] = (inboxes || []).map((ib) => ({
+            id: ib.id,
+            emailAddress: ib.email_address,
+            name: ib.name,
+            fromName: ib.from_name,
+            forwarding: ib.forwarding,
+            status: ib.status,
+            createdAt: ib.created_at,
+          }));
+
+          const acc: AccountInfo = {
+            id: row.id,
+            connected: true,
+            resendKeyMasked: row.resend_key_masked,
+            defaultFromAddress: row.default_from_address,
+            domains: [],
+            inboxes: mappedInboxes,
+            webhookConfigured: row.webhook_configured,
+            webhookUrl: row.webhook_url,
+            createdAt: row.created_at,
+            lastSyncedAt: row.updated_at || new Date().toISOString(),
+          };
+          this.state.account = acc;
+          return acc;
+        }
+      } catch (err) {
+        logger.warn({ err }, 'Failed to fetch account on demand');
+      }
+    }
+
+    return this.state.account;
   }
 
   public async setResendApiKey(key: string): Promise<void> {
@@ -268,7 +356,7 @@ export class StorageService {
 
     if (supabase) {
       try {
-        const apiKey = this.getResendApiKey() || 're_mock_default_key_placeholder';
+        const apiKey = (await this.getResendApiKey()) || 're_mock_default_key_placeholder';
         const encrypted = encryptData(apiKey);
 
         const { error } = await supabase.from('mail_accounts').upsert({

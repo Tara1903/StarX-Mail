@@ -10,7 +10,7 @@ import {
 
 export class ResendService {
   private getClient(apiKeyOverride?: string): Resend {
-    const key = apiKeyOverride || storage.getResendApiKey();
+    const key = apiKeyOverride || storage.getResendApiKeySync();
     if (!key) {
       throw new Error('Resend API key is not configured.');
     }
@@ -229,10 +229,10 @@ export class ResendService {
   /**
    * Send email via Resend
    */
-  public async sendEmail(payload: SendEmailRequest): Promise<{ id: string }> {
-    const client = this.getClient();
+  public async sendEmail(payload: SendEmailRequest, apiKeyOverride?: string): Promise<{ id: string }> {
+    const client = this.getClient(apiKeyOverride);
 
-    const fromAddress = payload.from || storage.getAccount()?.defaultFromAddress || 'onboarding@resend.dev';
+    const fromAddress = payload.from || (await storage.getAccountAsync())?.defaultFromAddress || 'onboarding@resend.dev';
 
     const attachmentsFormatted = payload.attachments?.map((att) => ({
       filename: att.filename,

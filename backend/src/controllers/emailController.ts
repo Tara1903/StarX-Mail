@@ -102,23 +102,30 @@ export class EmailController {
 
     const data = parseResult.data;
     try {
-      const result = await resendService.sendEmail({
-        from: data.from,
-        to: data.to,
-        cc: data.cc,
-        bcc: data.bcc,
-        replyTo: data.replyTo,
-        subject: data.subject,
-        text: data.text,
-        html: data.html,
-        attachments: data.attachments,
-        threadId: data.threadId,
-        inReplyTo: data.inReplyTo,
-      });
+      const accountId = (req as any).user?.accountId;
+      const apiKey = await storage.getResendApiKey(accountId);
+      const account = await storage.getAccountAsync(accountId);
+      const defaultFrom = account?.defaultFromAddress || 'mail@starxalphalabs.online';
+
+      const result = await resendService.sendEmail(
+        {
+          from: data.from || defaultFrom,
+          to: data.to,
+          cc: data.cc,
+          bcc: data.bcc,
+          replyTo: data.replyTo,
+          subject: data.subject,
+          text: data.text,
+          html: data.html,
+          attachments: data.attachments,
+          threadId: data.threadId,
+          inReplyTo: data.inReplyTo,
+        },
+        apiKey
+      );
 
       const emailId = result.id;
       const threadId = data.threadId || `thread_${emailId}`;
-      const defaultFrom = storage.getAccount()?.defaultFromAddress || 'onboarding@resend.dev';
 
       const attachments: EmailAttachment[] = (data.attachments || []).map((att, idx) => ({
         id: `att_${emailId}_${idx}`,
@@ -190,21 +197,29 @@ export class EmailController {
       : `Re: ${originalEmail.subject}`;
 
     try {
-      const result = await resendService.sendEmail({
-        to: recipients.length > 0 ? recipients : [originalEmail.from],
-        cc: replyAll ? originalEmail.cc : undefined,
-        subject,
-        text,
-        html,
-        attachments,
-        inReplyTo: originalEmail.id,
-        threadId: originalEmail.threadId,
-      });
+      const accountId = (req as any).user?.accountId;
+      const apiKey = await storage.getResendApiKey(accountId);
+      const account = await storage.getAccountAsync(accountId);
+      const defaultFrom = account?.defaultFromAddress || 'mail@starxalphalabs.online';
+
+      const result = await resendService.sendEmail(
+        {
+          to: recipients.length > 0 ? recipients : [originalEmail.from],
+          cc: replyAll ? originalEmail.cc : undefined,
+          subject,
+          text,
+          html,
+          attachments,
+          inReplyTo: originalEmail.id,
+          threadId: originalEmail.threadId,
+        },
+        apiKey
+      );
 
       const replyEmail: Email = {
         id: result.id,
         threadId: originalEmail.threadId,
-        from: storage.getAccount()?.defaultFromAddress || 'onboarding@resend.dev',
+        from: defaultFrom,
         to: recipients,
         cc: replyAll ? originalEmail.cc : [],
         bcc: [],
@@ -267,17 +282,23 @@ export class EmailController {
     const forwardedBodyHtml = `<p>${(text || '').replace(/\n/g, '<br/>')}</p><br/><hr/><p><b>---------- Forwarded message ---------</b><br/><b>From:</b> ${originalEmail.from}<br/><b>Date:</b> ${originalEmail.createdAt}<br/><b>Subject:</b> ${originalEmail.subject}<br/><b>To:</b> ${originalEmail.to.join(', ')}</p><br/>${originalEmail.htmlBody}`;
 
     try {
-      const result = await resendService.sendEmail({
-        to,
-        subject,
-        text: forwardedBodyText,
-        html: forwardedBodyHtml,
-        attachments: originalEmail.attachments.map((att) => ({
-          filename: att.filename,
-          content: att.contentBase64 || '',
-          contentType: att.contentType,
-        })),
-      });
+      const accountId = (req as any).user?.accountId;
+      const apiKey = await storage.getResendApiKey(accountId);
+
+      const result = await resendService.sendEmail(
+        {
+          to,
+          subject,
+          text: forwardedBodyText,
+          html: forwardedBodyHtml,
+          attachments: originalEmail.attachments.map((att) => ({
+            filename: att.filename,
+            content: att.contentBase64 || '',
+            contentType: att.contentType,
+          })),
+        },
+        apiKey
+      );
 
       res.status(200).json({
         success: true,

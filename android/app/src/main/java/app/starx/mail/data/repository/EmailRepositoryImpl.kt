@@ -207,11 +207,30 @@ class EmailRepositoryImpl @Inject constructor(
                 emailDao.insertEmail(sentEmail.toEntity())
                 NetworkResult.Success(sentEmail)
             } else {
-                NetworkResult.Error("Failed to send email: ${response.message()}", response.code())
+                NetworkResult.Error("Failed to send email: ${parseErrorMessage(response)}", response.code())
             }
         } catch (e: Exception) {
             NetworkResult.Error("Failed to send email: ${e.localizedMessage ?: "Unknown error"}")
         }
+    }
+
+    private fun parseErrorMessage(response: retrofit2.Response<*>): String {
+        val errorBody = try {
+            response.errorBody()?.string()
+        } catch (_: Exception) {
+            null
+        }
+        if (!errorBody.isNullOrBlank()) {
+            try {
+                val json = com.google.gson.JsonParser.parseString(errorBody).asJsonObject
+                if (json.has("message")) return json.get("message").asString
+                if (json.has("error")) return json.get("error").asString
+            } catch (_: Exception) {
+                return errorBody
+            }
+        }
+        val msg = response.message()
+        return if (!msg.isNullOrBlank()) msg else "HTTP ${response.code()}"
     }
 
     override suspend fun replyEmail(
@@ -254,7 +273,7 @@ class EmailRepositoryImpl @Inject constructor(
                 emailDao.insertEmail(reply.toEntity())
                 NetworkResult.Success(reply)
             } else {
-                NetworkResult.Error("Failed to send reply: ${response.message()}", response.code())
+                NetworkResult.Error("Failed to send reply: ${parseErrorMessage(response)}", response.code())
             }
         } catch (e: Exception) {
             NetworkResult.Error("Reply error: ${e.localizedMessage ?: "Unknown error"}")
@@ -274,7 +293,7 @@ class EmailRepositoryImpl @Inject constructor(
             if (response.isSuccessful) {
                 NetworkResult.Success(Unit)
             } else {
-                NetworkResult.Error("Failed to forward: ${response.message()}", response.code())
+                NetworkResult.Error("Failed to forward: ${parseErrorMessage(response)}", response.code())
             }
         } catch (e: Exception) {
             NetworkResult.Error("Forward error: ${e.localizedMessage ?: "Unknown error"}")
