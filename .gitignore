@@ -1,0 +1,30 @@
+# StarX Mail Git Ignore
+
+# Node / Backend
+node_modules/
+backend/node_modules/
+backend/dist/
+backend/.env
+backend/.env.local
+backend/.vercel
+.vercel/
+
+# Android / Gradle
+.gradle/
+build/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.iml
+.idea/
+
+# Keystores & Secrets
+*.keystore
+*.jks
+*.key
+
+# OS & Logs
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">StarX Mail</string>
+    <string name="tagline">Next-Generation Email Client Powered by Resend</string>
+    <string name="channel_emails_name">Incoming Emails</string>
+    <string name="channel_emails_desc">Notifications for new incoming email messages</string>
+    <string name="channel_delivery_name">Delivery Status</string>
+    <string name="channel_delivery_desc">Updates regarding email delivery, bounces, and sent status</string>
+    <string name="channel_sync_name">Background Synchronization</string>
+    <string name="channel_sync_desc">Shows background email sync status when active</string>
+</resources>

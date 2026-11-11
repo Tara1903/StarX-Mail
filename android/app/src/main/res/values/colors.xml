@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="starx_primary">#6750A4</color>
+    <color name="starx_primary_variant">#8B78D8</color>
+    <color name="starx_background">#F8F7FC</color>
+    <color name="starx_surface">#FFFFFF</color>
+    <color name="starx_text">#191820</color>
+    <color name="starx_accent">#8B78D8</color>
+</resources>
