@@ -177,7 +177,7 @@ fun OnboardingScreen(
                                 value = backendUrl,
                                 onValueChange = viewModel::onBackendUrlChanged,
                                 label = { Text("Backend Service URL") },
-                                placeholder = { Text("http://10.0.2.2:3000/api/v1/") },
+                                placeholder = { Text("https://starx-mail-backend.vercel.app/api/v1/") },
                                 singleLine = true,
                                 modifier = Modifier
                                     .fillMaxWidth()

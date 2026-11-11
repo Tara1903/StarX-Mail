@@ -61,6 +61,9 @@ class AuthRepositoryImpl @Inject constructor(
         backendUrl: String?,
         preferredEmailPrefix: String?
     ): NetworkResult<Account> {
+        if (!backendUrl.isNullOrBlank()) {
+            authInterceptor.setCustomBaseUrl(backendUrl)
+        }
         return try {
             val response = apiService.connect(
                 SetupConnectRequestDto(
