@@ -5,6 +5,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import app.starx.mail.core.model.DeliveryStatus
+import app.starx.mail.core.model.Domain
 import app.starx.mail.core.model.EmailFolder
 
 @Entity(
@@ -80,6 +81,7 @@ data class AccountEntity(
     val connected: Boolean = false,
     val resendKeyMasked: String = "",
     val defaultFromAddress: String = "",
+    val domains: List<Domain> = emptyList(),
     val webhookConfigured: Boolean = false,
     val webhookUrl: String? = null,
     val createdAt: String = "",

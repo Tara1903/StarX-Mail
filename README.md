@@ -38,26 +38,28 @@ The StarX Mail production cloud stack is deployed and actively operating:
 | **Encrypted File Storage** | Bucket `mail-attachments` | **ACTIVE** | Private, 40 MB max file size, time-limited signed URLs |
 | **Inbound Webhook** | [`/api/v1/webhooks/resend`](https://starx-mail-backend.vercel.app/api/v1/webhooks/resend) | **ACTIVE** | Svix signature verification + Idempotency tracking |
 | **Push Notifications** | Firebase Cloud Messaging (FCM) | **ACTIVE** | Instant push on `email.received` + WorkManager fallback |
-| **Android Release APK** | [GitHub Releases](https://github.com/Tara1903/StarX-Mail/releases) | **SIGNED** | Scheme v2 Signed, R8 Optimized (5.17 MB) |
+| **Android Release APK** | [GitHub Releases](https://github.com/Tara1903/StarX-Mail/releases) | **SIGNED** | Scheme v2 Signed, R8 Optimized (4.96 MB) |
 
 ### 📦 Production Release APK Details
 - **File**: `StarX-Mail-release.apk`
-- **Size**: `5,167,375 bytes` (~5.17 MB)
+- **Size**: `5,200,126 bytes` (~4.96 MB)
 - **Minification & Obfuscation**: R8 fully enabled (`isMinifyEnabled = true`, `isShrinkResources = true`)
 - **Signature Scheme**: APK Signature Scheme v2 (Signed with RSA 2048-bit key)
 - **SHA-256 Checksum**:
   ```
-  8CDA3D49787CD8BE97948824648420A31890387372F5A40CD7A4C1FDDADE5B72
+  570B4553073C083317F95BACC56FC350C7032EC6DF01104BE7F9306D5D9FD313
   ```
 
 ---
 
 ## 🌟 Key Features
 
-### 1. Automated One-Step Onboarding
-- **Zero Complex Manual Setup**: Users supply their Resend API Key (`re_...`) once in the app.
-- **Automated Discovery & Provisioning**: Automatically queries Resend to discover verified domains and inboxes, provisions an inbox when supported, creates Svix inbound webhooks, and synchronizes conversations.
-- **DNS Guidance**: If custom domain verification (MX, SPF, DKIM) is required, the app surfaces the exact DNS records needed.
+### 1. Generic Multi-Tenant & Any-Domain Support
+- **Bring Your Own Resend API Key**: Anyone can download StarX Mail and connect using **their own** Resend API key (`re_...`) with zero backend self-hosting required (or optionally configure their own custom backend URL).
+- **Full Multi-Tenant Isolation**: Every user's API key, emails, drafts, attachments, and webhooks are strictly isolated in Supabase PostgreSQL by `account_id` and AES-256-GCM encryption.
+- **In-App Custom Domain & DNS Management**: Add custom domains directly inside Settings (`POST /api/v1/setup/domains`), tap to copy SPF/DKIM/MX DNS records, and trigger live verification (`POST /api/v1/setup/domains/:domainId/verify`).
+- **Any Verified Sender Address**: Send from your verified domain aliases (`hello@yourdomain.com`, `support@yourdomain.com`, etc.) via smart presets or custom sender address input in Compose.
+- **Automated Provisioning**: Automatically discovers domains & inboxes, registers tenant-scoped Svix webhooks (`/api/v1/webhooks/resend/:accountId`), and synchronizes conversations.
 
 ### 2. Full-Featured Email Client
 - **Unified & Organized Inboxes**: Email list with sender avatars, real-time unread badges, paperclip attachment indicators, star toggles, and pull-to-refresh.
@@ -288,8 +290,11 @@ All API requests (except `/health`, `/setup/connect`, and `/webhooks/resend`) re
 | Method | Endpoint | Description | Auth Required |
 | :--- | :--- | :--- | :---: |
 | `GET` | `/api/v1/health` | Service health, version, and uptime | No |
-| `POST` | `/api/v1/setup/connect` | Authenticates Resend API key, discovers domains, and returns JWT session | No |
-| `GET` | `/api/v1/setup/status` | Returns current account connection status and domain verification details | Yes |
+| `POST` | `/api/v1/setup/connect` | Authenticates Resend API key, discovers domains, and returns tenant JWT session | No |
+| `GET` | `/api/v1/setup/status` | Returns authenticated account status and live Resend domain verification details | Optional |
+| `POST` | `/api/v1/setup/domains` | Adds a custom domain to the user's Resend account | Yes |
+| `POST` | `/api/v1/setup/domains/:domainId/verify` | Triggers Resend DNS verification for a custom domain | Yes |
+| `PATCH` | `/api/v1/setup/default-sender` | Updates the default `From` email address for the authenticated account | Yes |
 | `GET` | `/api/v1/inboxes` | Lists all discovered Resend inboxes and supported features | Yes |
 | `POST` | `/api/v1/inboxes` | Provisions a new inbox on a verified custom domain | Yes |
 | `GET` | `/api/v1/emails` | Lists paginated messages with filters (`folder`, `unread`, `search`) | Yes |
@@ -299,7 +304,7 @@ All API requests (except `/health`, `/setup/connect`, and `/webhooks/resend`) re
 | `GET` | `/api/v1/drafts` | Retrieves all saved drafts | Yes |
 | `DELETE`| `/api/v1/drafts/:id` | Deletes a saved draft | Yes |
 | `GET` | `/api/v1/sync` | Delta synchronization returning all updates since given timestamp | Yes |
-| `POST` | `/api/v1/webhooks/resend` | Inbound Svix webhook endpoint for incoming emails and delivery receipts | Signature |
+| `POST` | `/api/v1/webhooks/resend/:accountId` | Tenant-isolated Svix webhook endpoint for incoming emails & delivery receipts | Signature |
 | `POST` | `/api/v1/notifications/token` | Registers an Android FCM push token for real-time notifications | Yes |
 
 ---
@@ -324,11 +329,11 @@ The backend uses 11 relational tables with strict foreign-key cascades, automate
 
 ## 🧪 Testing & Quality Assurance
 
-- **Android Unit Tests**: Comprehensive JUnit & Mockito suites testing ViewModels, Repository contracts, Room DAOs, and network error handling.
+- **Android Unit Tests**: 10/10 JUnit unit tests passing across formatters, HTML sanitization, and repository use cases.
   ```bash
   cd android && ./gradlew test
   ```
-- **Backend Tests**: Vitest test suite testing controller routes, AES-256-GCM encryption/decryption, rate limiting, and webhook idempotency.
+- **Backend Tests**: 15/15 Vitest unit & integration tests passing (multi-tenant isolation, AES-256-GCM encryption, custom domain provisioning, rate limiting, and webhook idempotency).
   ```bash
   cd backend && npm test
   ```
@@ -336,7 +341,7 @@ The backend uses 11 relational tables with strict foreign-key cascades, automate
   ```bash
   node scripts/test-production-e2e.js
   ```
-  *Result: 9/9 E2E scenarios passing against `https://starx-mail-backend.vercel.app`.*
+  *Result: 11/11 E2E scenarios passing against `https://starx-mail-backend.vercel.app`.*
 
 ---
 

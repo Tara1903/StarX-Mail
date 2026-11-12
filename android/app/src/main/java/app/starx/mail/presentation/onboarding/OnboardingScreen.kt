@@ -115,7 +115,7 @@ fun OnboardingScreen(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
-                        text = "Enter your Resend API key once. StarX Mail will automatically provision your inboxes, inbound webhooks, and synchronization.",
+                        text = "Enter your Resend API key once. Works automatically with any of your own verified domains on Resend or sandbox testing.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -187,8 +187,8 @@ fun OnboardingScreen(
                             OutlinedTextField(
                                 value = emailPrefix,
                                 onValueChange = viewModel::onEmailPrefixChanged,
-                                label = { Text("Preferred Inbox Prefix") },
-                                placeholder = { Text("e.g. mail, support, hello") },
+                                label = { Text("Sender Local-Part Prefix") },
+                                placeholder = { Text("e.g. mail, hello, support") },
                                 singleLine = true,
                                 modifier = Modifier
                                     .fillMaxWidth()

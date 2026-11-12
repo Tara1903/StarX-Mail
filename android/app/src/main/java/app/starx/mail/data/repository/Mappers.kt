@@ -238,7 +238,7 @@ fun Inbox.toEntity(): InboxEntity {
     )
 }
 
-fun AccountEntity.toDomain(domains: List<Domain> = emptyList(), inboxes: List<Inbox> = emptyList()): Account {
+fun AccountEntity.toDomain(inboxes: List<Inbox> = emptyList()): Account {
     return Account(
         id = id,
         email = email,
@@ -257,10 +257,11 @@ fun AccountEntity.toDomain(domains: List<Domain> = emptyList(), inboxes: List<In
 fun Account.toEntity(): AccountEntity {
     return AccountEntity(
         id = id,
-        email = email,
+        email = email ?: defaultFromAddress,
         connected = connected,
         resendKeyMasked = resendKeyMasked,
         defaultFromAddress = defaultFromAddress,
+        domains = domains,
         webhookConfigured = webhookConfigured,
         webhookUrl = webhookUrl,
         createdAt = createdAt,

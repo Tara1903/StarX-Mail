@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { resendService } from '../services/resendClient';
 import { storage } from '../services/storage';
 import { logger } from '../services/logger';
+import { AuthenticatedRequest } from '../middleware/auth';
 
 const createInboxSchema = z.object({
   emailAddress: z.string().email(),
@@ -12,22 +13,25 @@ const createInboxSchema = z.object({
 });
 
 export class InboxController {
-  public async listInboxes(_req: Request, res: Response): Promise<void> {
+  public async listInboxes(req: Request, res: Response): Promise<void> {
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
     try {
-      const inboxes = await resendService.listInboxes();
+      const apiKey = await storage.getResendApiKey(accountId);
+      const inboxes = await resendService.listInboxes(apiKey);
       if (inboxes.length > 0) {
-        await storage.updateAccountInboxes(inboxes);
+        await storage.updateAccountInboxes(inboxes, accountId);
       }
-      const accountInboxes = storage.getAccount()?.inboxes || inboxes;
-      res.status(200).json({ inboxes: accountInboxes });
+      const account = await storage.getAccountAsync(accountId);
+      res.status(200).json({ inboxes: account?.inboxes || inboxes });
     } catch (error: any) {
-      logger.error({ error }, 'Failed to list inboxes');
-      const cached = storage.getAccount()?.inboxes || [];
-      res.status(200).json({ inboxes: cached });
+      logger.error({ error, accountId }, 'Failed to list inboxes');
+      const account = await storage.getAccountAsync(accountId);
+      res.status(200).json({ inboxes: account?.inboxes || [] });
     }
   }
 
   public async createInbox(req: Request, res: Response): Promise<void> {
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
     const parseResult = createInboxSchema.safeParse(req.body);
     if (!parseResult.success) {
       res.status(400).json({ error: 'Validation Error', details: parseResult.error.flatten() });
@@ -35,13 +39,15 @@ export class InboxController {
     }
 
     try {
-      const inbox = await resendService.createInbox(parseResult.data);
-      const current = storage.getAccount()?.inboxes || [];
-      await storage.updateAccountInboxes([...current, inbox]);
+      const apiKey = await storage.getResendApiKey(accountId);
+      const inbox = await resendService.createInbox(parseResult.data, apiKey);
+      const account = await storage.getAccountAsync(accountId);
+      const current = account?.inboxes || [];
+      await storage.updateAccountInboxes([...current, inbox], accountId);
 
       res.status(201).json({ success: true, inbox });
     } catch (error: any) {
-      logger.error({ error }, 'Failed to create inbox');
+      logger.error({ error, accountId }, 'Failed to create inbox');
       res.status(500).json({ error: 'Creation Error', message: error.message });
     }
   }

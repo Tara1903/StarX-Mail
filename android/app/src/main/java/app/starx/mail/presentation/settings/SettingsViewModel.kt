@@ -108,6 +108,58 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun addDomain(domainName: String) {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            when (val result = accountRepository.addDomain(domainName)) {
+                is NetworkResult.Success -> {
+                    _statusMessage.value = "Domain added: ${result.data.name}. Add the DNS records and verify."
+                    refreshStatus()
+                }
+                is NetworkResult.Error -> {
+                    _statusMessage.value = "Add domain failed: ${result.message}"
+                }
+                else -> {}
+            }
+            _isRefreshing.value = false
+        }
+    }
+
+    fun verifyDomain(domainId: String) {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            when (val result = accountRepository.verifyDomain(domainId)) {
+                is NetworkResult.Success -> {
+                    _statusMessage.value = "DNS verification check triggered."
+                    refreshStatus()
+                }
+                is NetworkResult.Error -> {
+                    _statusMessage.value = "Verify failed: ${result.message}"
+                }
+                else -> {}
+            }
+            _isRefreshing.value = false
+        }
+    }
+
+    fun updateDefaultSender(emailAddress: String) {
+        viewModelScope.launch {
+            when (val result = accountRepository.updateDefaultSender(emailAddress)) {
+                is NetworkResult.Success -> {
+                    _statusMessage.value = "Default sender set to ${result.data.defaultFromAddress}"
+                }
+                is NetworkResult.Error -> {
+                    _statusMessage.value = "Failed to update sender: ${result.message}"
+                }
+                else -> {}
+            }
+        }
+    }
+
+    fun notifyMessage(message: String) {
+        _statusMessage.value = message
+    }
+
     fun disconnect(onComplete: () -> Unit) {
         viewModelScope.launch {
             authRepository.disconnect()

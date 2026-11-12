@@ -71,4 +71,7 @@ interface AccountRepository {
     suspend fun refreshStatus(): NetworkResult<Account>
     suspend fun getInboxes(): NetworkResult<List<Inbox>>
     suspend fun createInbox(emailAddress: String, name: String, fromName: String?): NetworkResult<Inbox>
+    suspend fun addDomain(domainName: String, region: String = "us-east-1"): NetworkResult<Domain>
+    suspend fun verifyDomain(domainId: String): NetworkResult<Domain?>
+    suspend fun updateDefaultSender(emailAddress: String): NetworkResult<Account>
 }

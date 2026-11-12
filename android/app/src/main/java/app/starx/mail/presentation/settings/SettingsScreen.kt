@@ -1,9 +1,8 @@
 package app.starx.mail.presentation.settings
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -12,12 +11,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import app.starx.mail.presentation.theme.StarXPrimary
 import app.starx.mail.presentation.theme.StarXSuccessGreen
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,7 +32,11 @@ fun SettingsScreen(
     val isRefreshing by viewModel.isRefreshing.collectAsState()
 
     var showCreateInboxDialog by remember { mutableStateOf(false) }
+    var showAddDomainDialog by remember { mutableStateOf(false) }
+    var showEditSenderDialog by remember { mutableStateOf(false) }
     var showDisconnectDialog by remember { mutableStateOf(false) }
+
+    val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollState = rememberScrollState()
 
@@ -49,8 +52,17 @@ fun SettingsScreen(
             TopAppBar(
                 title = { Text("Settings", style = MaterialTheme.typography.titleLarge) },
                 actions = {
-                    IconButton(onClick = viewModel::refreshStatus) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh status")
+                    if (isRefreshing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(end = 12.dp)
+                                .size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        IconButton(onClick = viewModel::refreshStatus) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh status")
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -108,18 +120,178 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    Text(
-                        text = "Default Sender: ${account?.defaultFromAddress ?: "onboarding@resend.dev"}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                    if (account?.webhookConfigured == true) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = "Inbound Webhook: Active",
+                            text = "Default Sender: ${account?.defaultFromAddress ?: "onboarding@resend.dev"}",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = StarXSuccessGreen
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
+                        TextButton(onClick = { showEditSenderDialog = true }) {
+                            Text("Edit")
+                        }
+                    }
+
+                    val webhookUrl = account?.webhookUrl
+                    if (!webhookUrl.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    clipboardManager.setText(AnnotatedString(webhookUrl))
+                                    viewModel.notifyMessage("Webhook URL copied to clipboard")
+                                },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (account?.webhookConfigured == true) "Inbound Webhook: Active" else "Inbound Webhook URL (Tap to copy)",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (account?.webhookConfigured == true) StarXSuccessGreen else MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = webhookUrl,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy webhook URL",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Custom Domains & DNS Records
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Domains & DNS (${account?.domains?.size ?: 0})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        TextButton(onClick = { showAddDomainDialog = true }) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Add Domain")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val domains = account?.domains ?: emptyList()
+                    if (domains.isEmpty()) {
+                        Text(
+                            text = "No custom domains connected yet. Add your own domain or verify it in Resend to send from your domain.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        domains.forEach { domain ->
+                            val isVerified = domain.status == "verified"
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = domain.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f)
+                                )
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    if (!isVerified) {
+                                        TextButton(
+                                            onClick = { viewModel.verifyDomain(domain.id) },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("Verify DNS", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = if (isVerified) StarXSuccessGreen.copy(alpha = 0.15f)
+                                        else MaterialTheme.colorScheme.errorContainer
+                                    ) {
+                                        Text(
+                                            text = domain.status.uppercase(),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (isVerified) StarXSuccessGreen else MaterialTheme.colorScheme.onErrorContainer,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (!isVerified && domain.records.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "DNS Records (Tap a record to copy value):",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                domain.records.forEach { rec ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                clipboardManager.setText(AnnotatedString(rec.value))
+                                                viewModel.notifyMessage("Copied ${rec.type} value")
+                                            }
+                                            .padding(vertical = 3.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "• ${rec.type} ${rec.name}: ${rec.value} (${rec.status})",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.ContentCopy,
+                                            contentDescription = "Copy DNS value",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier
+                                                .padding(start = 6.dp)
+                                                .size(14.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
                     }
                 }
             }
@@ -153,7 +325,7 @@ fun SettingsScreen(
                     val inboxes = account?.inboxes ?: emptyList()
                     if (inboxes.isEmpty()) {
                         Text(
-                            text = "No inboxes provisioned yet. Create one or verify a custom domain.",
+                            text = "No Resend inboxes provisioned. You can still send from any alias on your verified custom domain.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -196,76 +368,6 @@ fun SettingsScreen(
                 }
             }
 
-            // Domains & DNS Records
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Verified Domains & DNS",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    val domains = account?.domains ?: emptyList()
-                    if (domains.isEmpty()) {
-                        Text(
-                            text = "No custom domains connected. Using Resend development address.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        domains.forEach { domain ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = domain.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-
-                                val isVerified = domain.status == "verified"
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = if (isVerified) StarXSuccessGreen.copy(alpha = 0.15f)
-                                    else MaterialTheme.colorScheme.errorContainer
-                                ) {
-                                    Text(
-                                        text = domain.status.uppercase(),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (isVerified) StarXSuccessGreen else MaterialTheme.colorScheme.onErrorContainer,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-
-                            if (domain.records.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = "Required DNS Records (MX, SPF, DKIM):",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                domain.records.forEach { rec ->
-                                    Text(
-                                        text = "• ${rec.type}: ${rec.name} -> ${rec.value} (${rec.status})",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-                    }
-                }
-            }
-
             // Sync and Security Settings
             Card(
                 shape = RoundedCornerShape(16.dp),
@@ -280,7 +382,6 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Sync frequency selector
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -302,14 +403,13 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Biometric Lock
                     if (viewModel.canUseBiometrics) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text("Biometric Lock", style = MaterialTheme.typography.bodyMedium)
                                 Text(
                                     "Require biometric authentication to open StarX Mail",
@@ -342,6 +442,90 @@ fun SettingsScreen(
         }
     }
 
+    // Add Custom Domain Dialog
+    if (showAddDomainDialog) {
+        var domainName by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { showAddDomainDialog = false },
+            title = { Text("Add Custom Domain") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Add any domain you own. Resend will generate DKIM and SPF DNS records for verification.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = domainName,
+                        onValueChange = { domainName = it },
+                        label = { Text("Domain Name") },
+                        placeholder = { Text("yourdomain.com") },
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val clean = domainName.trim()
+                    if (clean.isNotBlank()) {
+                        viewModel.addDomain(clean)
+                        showAddDomainDialog = false
+                    }
+                }) {
+                    Text("Add")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDomainDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Edit Default Sender Dialog
+    if (showEditSenderDialog) {
+        var senderEmail by remember { mutableStateOf(account?.defaultFromAddress ?: "") }
+
+        AlertDialog(
+            onDismissRequest = { showEditSenderDialog = false },
+            title = { Text("Default Sender Address") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Choose any email address on one of your verified custom domains.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = senderEmail,
+                        onValueChange = { senderEmail = it },
+                        label = { Text("From Email Address") },
+                        placeholder = { Text("hello@yourdomain.com") },
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val clean = senderEmail.trim()
+                    if (clean.contains("@")) {
+                        viewModel.updateDefaultSender(clean)
+                        showEditSenderDialog = false
+                    }
+                }) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditSenderDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     // Create Inbox Dialog
     if (showCreateInboxDialog) {
         var emailAddress by remember { mutableStateOf("") }
@@ -371,7 +555,7 @@ fun SettingsScreen(
                         value = fromName,
                         onValueChange = { fromName = it },
                         label = { Text("Display Name") },
-                        placeholder = { Text("StarX Support") },
+                        placeholder = { Text("Support Team") },
                         singleLine = true
                     )
                 }

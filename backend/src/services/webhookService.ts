@@ -1,22 +1,23 @@
 import { Webhook } from 'svix';
 import { logger } from './logger';
 import { storage } from './storage';
+import { resendService } from './resendClient';
 import { Email, WebhookEventPayload, EmailAttachment } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { fcmService } from './fcmService';
 
 export class WebhookService {
   /**
-   * Verify Svix / Resend webhook signature
+   * Verify Svix / Resend webhook signature for a specific tenant account
    */
-  public verifySignature(
+  public async verifySignature(
     rawBody: string | Buffer,
-    headers: Record<string, string | string[] | undefined>
-  ): boolean {
-    const signingSecret = storage.getWebhookSigningSecret();
+    headers: Record<string, string | string[] | undefined>,
+    accountId?: string
+  ): Promise<boolean> {
+    const signingSecret = await storage.getWebhookSigningSecret(accountId);
     if (!signingSecret || signingSecret === 'whsec_starx_default_secret') {
-      // In local dev without configured Svix secret, allow if testing
-      logger.warn('Skipping webhook signature verification (signing secret not configured or default)');
+      logger.warn({ accountId }, 'Skipping webhook signature verification (signing secret not configured)');
       return true;
     }
 
@@ -25,7 +26,7 @@ export class WebhookService {
     const svixSignature = (headers['svix-signature'] || headers['Svix-Signature']) as string;
 
     if (!svixId || !svixTimestamp || !svixSignature) {
-      logger.error('Missing required Svix webhook headers');
+      logger.error({ accountId }, 'Missing required Svix webhook headers');
       return false;
     }
 
@@ -38,17 +39,18 @@ export class WebhookService {
       });
       return true;
     } catch (error) {
-      logger.error({ error }, 'Webhook signature verification failed');
+      logger.error({ error, accountId }, 'Webhook signature verification failed');
       return false;
     }
   }
 
   /**
-   * Process verified webhook event idempotently
+   * Process verified webhook event idempotently scoped to the owning tenant account
    */
   public async processEvent(
     payload: WebhookEventPayload,
-    rawEventId?: string
+    rawEventId?: string,
+    explicitAccountId?: string
   ): Promise<{ success: boolean; message: string }> {
     const eventId =
       rawEventId || payload.data?.id || payload.data?.email_id || `${payload.type}_${payload.created_at}`;
@@ -59,18 +61,44 @@ export class WebhookService {
       return { success: true, message: 'Event already processed' };
     }
 
-    logger.info({ type: payload.type, eventId }, 'Processing Resend webhook event');
+    const toList = Array.isArray(payload.data?.to)
+      ? payload.data.to
+      : payload.data?.to
+      ? [payload.data.to]
+      : [];
+
+    const targetAccountId =
+      explicitAccountId || (await storage.resolveAccountIdByRecipient(toList));
+
+    logger.info({ type: payload.type, eventId, targetAccountId }, 'Processing Resend webhook event');
 
     switch (payload.type) {
       case 'email.received':
       case 'inbox.email.received': {
         const data = payload.data;
         const emailId = data.email_id || data.id || `in_${uuidv4()}`;
-        const toList = Array.isArray(data.to) ? data.to : data.to ? [data.to] : [];
         const fromAddress = data.from || 'unknown@sender.com';
-        const subject = data.subject || '(No Subject)';
-        const textBody = data.text || '';
-        const htmlBody = data.html || `<p>${textBody.replace(/\n/g, '<br/>')}</p>`;
+        let subject = data.subject || '(No Subject)';
+        let textBody = data.text || '';
+        let htmlBody = data.html || '';
+
+        // If webhook payload omitted body (Resend Inbound Receiving webhook style), fetch from Receiving API
+        if ((!textBody && !htmlBody) && targetAccountId) {
+          const apiKey = await storage.getResendApiKey(targetAccountId);
+          if (apiKey) {
+            const received = await resendService.getReceivedEmail(emailId, apiKey);
+            if (received) {
+              textBody = received.text || '';
+              htmlBody = received.html || '';
+              subject = received.subject || subject;
+            }
+          }
+        }
+
+        if (!htmlBody) {
+          htmlBody = `<p>${textBody.replace(/\n/g, '<br/>')}</p>`;
+        }
+
         const snippet = textBody ? textBody.slice(0, 160).replace(/\s+/g, ' ') : subject;
 
         const attachments: EmailAttachment[] = (data.attachments || []).map((att: any, idx: number) => ({
@@ -103,23 +131,23 @@ export class WebhookService {
           headers: data.headers,
         };
 
-        await storage.saveEmail(newEmail);
-        await storage.updateLastSyncTimestamp(new Date().toISOString());
+        await storage.saveEmail(newEmail, targetAccountId);
+        await storage.updateLastSyncTimestamp(new Date().toISOString(), targetAccountId);
 
-        // Dispatch FCM Push Notification to registered devices
-        const accountId = storage.getAccount()?.id || 'default_account';
-        fcmService
-          .sendNotification(accountId, {
-            title: fromAddress,
-            body: subject,
-            emailId,
-            threadId: newEmail.threadId,
-            from: fromAddress,
-            snippet,
-          })
-          .catch((err) => {
-            logger.warn({ err }, 'Error dispatching FCM push for incoming email');
-          });
+        if (targetAccountId) {
+          fcmService
+            .sendNotification(targetAccountId, {
+              title: fromAddress,
+              body: subject,
+              emailId,
+              threadId: newEmail.threadId,
+              from: fromAddress,
+              snippet,
+            })
+            .catch((err) => {
+              logger.warn({ err, targetAccountId }, 'Error dispatching FCM push for incoming email');
+            });
+        }
 
         break;
       }
@@ -127,7 +155,7 @@ export class WebhookService {
       case 'email.delivered': {
         const targetId = payload.data?.email_id || payload.data?.id;
         if (targetId) {
-          await storage.updateEmailStatus(targetId, { deliveryStatus: 'delivered' });
+          await storage.updateEmailStatus(targetId, { deliveryStatus: 'delivered' }, targetAccountId);
         }
         break;
       }
@@ -135,7 +163,7 @@ export class WebhookService {
       case 'email.bounced': {
         const targetId = payload.data?.email_id || payload.data?.id;
         if (targetId) {
-          await storage.updateEmailStatus(targetId, { deliveryStatus: 'bounced' });
+          await storage.updateEmailStatus(targetId, { deliveryStatus: 'bounced' }, targetAccountId);
         }
         break;
       }
@@ -143,7 +171,7 @@ export class WebhookService {
       case 'email.complained': {
         const targetId = payload.data?.email_id || payload.data?.id;
         if (targetId) {
-          await storage.updateEmailStatus(targetId, { deliveryStatus: 'complained' });
+          await storage.updateEmailStatus(targetId, { deliveryStatus: 'complained' }, targetAccountId);
         }
         break;
       }
@@ -151,7 +179,7 @@ export class WebhookService {
       case 'email.sent': {
         const targetId = payload.data?.email_id || payload.data?.id;
         if (targetId) {
-          await storage.updateEmailStatus(targetId, { deliveryStatus: 'sent' });
+          await storage.updateEmailStatus(targetId, { deliveryStatus: 'sent' }, targetAccountId);
         }
         break;
       }
@@ -160,7 +188,7 @@ export class WebhookService {
         logger.info({ type: payload.type }, 'Unhandled webhook event type');
     }
 
-    await storage.markWebhookEventProcessed(eventId, payload.type, payload);
+    await storage.markWebhookEventProcessed(eventId, payload.type, payload, targetAccountId);
     return { success: true, message: 'Event processed successfully' };
   }
 }

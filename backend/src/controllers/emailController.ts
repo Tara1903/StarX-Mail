@@ -5,6 +5,7 @@ import { storage } from '../services/storage';
 import { logger } from '../services/logger';
 import { Email, EmailAttachment } from '../types';
 import { SupabaseStorageClient } from '../services/supabaseClient';
+import { AuthenticatedRequest } from '../middleware/auth';
 
 const sendEmailSchema = z.object({
   from: z.string().email().optional(),
@@ -36,15 +37,16 @@ const updateEmailSchema = z.object({
 
 export class EmailController {
   /**
-   * List emails filtered by folder and search term
+   * List emails filtered by folder and search term for the authenticated tenant
    */
   public async listEmails(req: Request, res: Response): Promise<void> {
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
     const folder = (req.query.folder as string) || 'inbox';
     const search = req.query.q as string | undefined;
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
     const offset = parseInt(req.query.offset as string) || 0;
 
-    const emails = await storage.getEmailsByFolder(folder, search);
+    const emails = await storage.getEmailsByFolder(folder, search, accountId);
     const paginated = emails.slice(offset, offset + limit);
 
     res.status(200).json({
@@ -57,25 +59,24 @@ export class EmailController {
   }
 
   /**
-   * Get single email and its conversation thread
+   * Get single email and its conversation thread for the authenticated tenant
    */
   public async getEmail(req: Request, res: Response): Promise<void> {
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
     const { id } = req.params;
-    const email = await storage.getEmail(id);
+    const email = await storage.getEmail(id, accountId);
 
     if (!email) {
       res.status(404).json({ error: 'Not Found', message: 'Email not found' });
       return;
     }
 
-    // Automatically mark as read
     if (!email.isRead) {
-      await storage.updateEmailStatus(id, { isRead: true });
+      await storage.updateEmailStatus(id, { isRead: true }, accountId);
       email.isRead = true;
     }
 
-    // Fetch conversation thread
-    const threadEmails = await storage.getEmailsByThreadId(email.threadId);
+    const threadEmails = await storage.getEmailsByThreadId(email.threadId, accountId);
 
     res.status(200).json({
       email,
@@ -88,7 +89,7 @@ export class EmailController {
   }
 
   /**
-   * Send new email
+   * Send new email using the authenticated user's Resend API key and domain
    */
   public async sendEmail(req: Request, res: Response): Promise<void> {
     const parseResult = sendEmailSchema.safeParse(req.body);
@@ -102,14 +103,15 @@ export class EmailController {
 
     const data = parseResult.data;
     try {
-      const accountId = (req as any).user?.accountId;
+      const accountId = (req as AuthenticatedRequest).user!.accountId;
       const apiKey = await storage.getResendApiKey(accountId);
       const account = await storage.getAccountAsync(accountId);
-      const defaultFrom = account?.defaultFromAddress || 'mail@starxalphalabs.online';
+      const defaultFrom = account?.defaultFromAddress || 'onboarding@resend.dev';
+      const senderAddress = data.from || defaultFrom;
 
       const result = await resendService.sendEmail(
         {
-          from: data.from || defaultFrom,
+          from: senderAddress,
           to: data.to,
           cc: data.cc,
           bcc: data.bcc,
@@ -121,7 +123,8 @@ export class EmailController {
           threadId: data.threadId,
           inReplyTo: data.inReplyTo,
         },
-        apiKey
+        apiKey,
+        accountId
       );
 
       const emailId = result.id;
@@ -138,7 +141,7 @@ export class EmailController {
       const sentEmail: Email = {
         id: emailId,
         threadId,
-        from: data.from || defaultFrom,
+        from: senderAddress,
         to: data.to,
         cc: data.cc || [],
         bcc: data.bcc || [],
@@ -156,7 +159,7 @@ export class EmailController {
         deliveryStatus: 'sent',
       };
 
-      await storage.saveEmail(sentEmail);
+      await storage.saveEmail(sentEmail, accountId);
 
       res.status(200).json({
         success: true,
@@ -165,7 +168,7 @@ export class EmailController {
         message: 'Email delivered to Resend queue.',
       });
     } catch (error: any) {
-      logger.error({ error }, 'Failed to send email');
+      logger.error({ error: error.message }, 'Failed to send email');
       res.status(500).json({
         error: 'Send Error',
         message: error.message || 'Failed to dispatch email via Resend.',
@@ -174,21 +177,25 @@ export class EmailController {
   }
 
   /**
-   * Reply to an existing email/thread
+   * Reply to an existing email/thread for the authenticated user
    */
   public async replyEmail(req: Request, res: Response): Promise<void> {
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
     const { id } = req.params;
-    const originalEmail = await storage.getEmail(id);
+    const originalEmail = await storage.getEmail(id, accountId);
 
     if (!originalEmail) {
       res.status(404).json({ error: 'Not Found', message: 'Original email not found' });
       return;
     }
 
-    const { text, html, replyAll, attachments } = req.body;
+    const { from, text, html, replyAll, attachments } = req.body;
+    const account = await storage.getAccountAsync(accountId);
+    const defaultFrom = from || account?.defaultFromAddress || 'onboarding@resend.dev';
+
     const recipients = replyAll
       ? Array.from(new Set([originalEmail.from, ...originalEmail.to])).filter(
-          (addr) => addr !== (storage.getAccount()?.defaultFromAddress || '')
+          (addr) => addr.toLowerCase() !== defaultFrom.toLowerCase()
         )
       : [originalEmail.from];
 
@@ -197,13 +204,11 @@ export class EmailController {
       : `Re: ${originalEmail.subject}`;
 
     try {
-      const accountId = (req as any).user?.accountId;
       const apiKey = await storage.getResendApiKey(accountId);
-      const account = await storage.getAccountAsync(accountId);
-      const defaultFrom = account?.defaultFromAddress || 'mail@starxalphalabs.online';
 
       const result = await resendService.sendEmail(
         {
+          from: defaultFrom,
           to: recipients.length > 0 ? recipients : [originalEmail.from],
           cc: replyAll ? originalEmail.cc : undefined,
           subject,
@@ -213,14 +218,15 @@ export class EmailController {
           inReplyTo: originalEmail.id,
           threadId: originalEmail.threadId,
         },
-        apiKey
+        apiKey,
+        accountId
       );
 
       const replyEmail: Email = {
         id: result.id,
         threadId: originalEmail.threadId,
         from: defaultFrom,
-        to: recipients,
+        to: recipients.length > 0 ? recipients : [originalEmail.from],
         cc: replyAll ? originalEmail.cc : [],
         bcc: [],
         subject,
@@ -242,7 +248,7 @@ export class EmailController {
         deliveryStatus: 'sent',
       };
 
-      await storage.saveEmail(replyEmail);
+      await storage.saveEmail(replyEmail, accountId);
 
       res.status(200).json({
         success: true,
@@ -256,18 +262,19 @@ export class EmailController {
   }
 
   /**
-   * Forward an email
+   * Forward an email for the authenticated user
    */
   public async forwardEmail(req: Request, res: Response): Promise<void> {
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
     const { id } = req.params;
-    const originalEmail = await storage.getEmail(id);
+    const originalEmail = await storage.getEmail(id, accountId);
 
     if (!originalEmail) {
       res.status(404).json({ error: 'Not Found', message: 'Original email not found' });
       return;
     }
 
-    const { to, text, html } = req.body;
+    const { from, to, text, html } = req.body;
     if (!to || !Array.isArray(to) || to.length === 0) {
       res.status(400).json({ error: 'Bad Request', message: 'Recipient "to" list is required' });
       return;
@@ -282,22 +289,27 @@ export class EmailController {
     const forwardedBodyHtml = `<p>${(text || '').replace(/\n/g, '<br/>')}</p><br/><hr/><p><b>---------- Forwarded message ---------</b><br/><b>From:</b> ${originalEmail.from}<br/><b>Date:</b> ${originalEmail.createdAt}<br/><b>Subject:</b> ${originalEmail.subject}<br/><b>To:</b> ${originalEmail.to.join(', ')}</p><br/>${originalEmail.htmlBody}`;
 
     try {
-      const accountId = (req as any).user?.accountId;
       const apiKey = await storage.getResendApiKey(accountId);
+      const account = await storage.getAccountAsync(accountId);
+      const senderAddress = from || account?.defaultFromAddress || 'onboarding@resend.dev';
 
       const result = await resendService.sendEmail(
         {
+          from: senderAddress,
           to,
           subject,
           text: forwardedBodyText,
           html: forwardedBodyHtml,
-          attachments: originalEmail.attachments.map((att) => ({
-            filename: att.filename,
-            content: att.contentBase64 || '',
-            contentType: att.contentType,
-          })),
+          attachments: originalEmail.attachments
+            .filter((att) => !!att.contentBase64)
+            .map((att) => ({
+              filename: att.filename,
+              content: att.contentBase64!,
+              contentType: att.contentType,
+            })),
         },
-        apiKey
+        apiKey,
+        accountId
       );
 
       res.status(200).json({
@@ -314,6 +326,7 @@ export class EmailController {
    * Update email status (read/unread, starred, move to archive/trash)
    */
   public async updateEmail(req: Request, res: Response): Promise<void> {
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
     const { id } = req.params;
     const parseResult = updateEmailSchema.safeParse(req.body);
 
@@ -322,7 +335,7 @@ export class EmailController {
       return;
     }
 
-    const updated = await storage.updateEmailStatus(id, parseResult.data);
+    const updated = await storage.updateEmailStatus(id, parseResult.data, accountId);
     if (!updated) {
       res.status(404).json({ error: 'Not Found', message: 'Email not found' });
       return;
@@ -335,11 +348,12 @@ export class EmailController {
   }
 
   /**
-   * Delete an email (permanently or from trash)
+   * Delete an email (move to trash or permanently delete)
    */
   public async deleteEmail(req: Request, res: Response): Promise<void> {
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
     const { id } = req.params;
-    const existing = await storage.getEmail(id);
+    const existing = await storage.getEmail(id, accountId);
 
     if (!existing) {
       res.status(404).json({ error: 'Not Found', message: 'Email not found' });
@@ -347,23 +361,22 @@ export class EmailController {
     }
 
     if (existing.folder !== 'trash') {
-      // First move to trash
-      await storage.updateEmailStatus(id, { folder: 'trash' });
+      await storage.updateEmailStatus(id, { folder: 'trash' }, accountId);
       res.status(200).json({ success: true, message: 'Email moved to trash' });
       return;
     }
 
-    // Already in trash: permanently remove
-    await storage.deleteEmail(id);
+    await storage.deleteEmail(id, accountId);
     res.status(200).json({ success: true, message: 'Email permanently deleted' });
   }
 
   /**
-   * Download attachment
+   * Download attachment for authenticated user
    */
   public async downloadAttachment(req: Request, res: Response): Promise<void> {
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
     const { id, attachmentId } = req.params;
-    const email = await storage.getEmail(id);
+    const email = await storage.getEmail(id, accountId);
 
     if (!email) {
       res.status(404).json({ error: 'Not Found', message: 'Email not found' });
@@ -376,7 +389,6 @@ export class EmailController {
       return;
     }
 
-    // If signed URL exists in Supabase Storage, redirect or return signed URL
     if ((att as any).storagePath) {
       const signedUrl = await SupabaseStorageClient.getSignedUrl((att as any).storagePath);
       if (signedUrl) {

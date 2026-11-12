@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { storage } from '../services/storage';
 import { Draft } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import { AuthenticatedRequest } from '../middleware/auth';
 
 const saveDraftSchema = z.object({
   id: z.string().optional(),
@@ -27,14 +28,16 @@ const saveDraftSchema = z.object({
 });
 
 export class DraftController {
-  public async listDrafts(_req: Request, res: Response): Promise<void> {
-    const drafts = await storage.getAllDrafts();
+  public async listDrafts(req: Request, res: Response): Promise<void> {
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
+    const drafts = await storage.getAllDrafts(accountId);
     res.status(200).json({ drafts });
   }
 
   public async getDraft(req: Request, res: Response): Promise<void> {
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
     const { id } = req.params;
-    const draft = await storage.getDraft(id);
+    const draft = await storage.getDraft(id, accountId);
     if (!draft) {
       res.status(404).json({ error: 'Not Found', message: 'Draft not found' });
       return;
@@ -43,6 +46,7 @@ export class DraftController {
   }
 
   public async saveDraft(req: Request, res: Response): Promise<void> {
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
     const parseResult = saveDraftSchema.safeParse(req.body);
     if (!parseResult.success) {
       res.status(400).json({ error: 'Validation Error', details: parseResult.error.flatten() });
@@ -71,13 +75,14 @@ export class DraftController {
       updatedAt: new Date().toISOString(),
     };
 
-    await storage.saveDraft(draft);
+    await storage.saveDraft(draft, accountId);
     res.status(200).json({ success: true, draft });
   }
 
   public async deleteDraft(req: Request, res: Response): Promise<void> {
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
     const { id } = req.params;
-    const deleted = await storage.deleteDraft(id);
+    const deleted = await storage.deleteDraft(id, accountId);
     if (!deleted) {
       res.status(404).json({ error: 'Not Found', message: 'Draft not found' });
       return;

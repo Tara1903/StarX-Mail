@@ -1,12 +1,14 @@
 import { Request, Response } from 'express';
 import { storage } from '../services/storage';
 import { Email, SyncResponse } from '../types';
+import { AuthenticatedRequest } from '../middleware/auth';
 
 export class SyncController {
   public async sync(req: Request, res: Response): Promise<void> {
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
     const since = req.query.since as string | undefined;
-    const allEmails = await storage.getAllEmails();
-    const allDrafts = await storage.getAllDrafts();
+    const allEmails = await storage.getAllEmails(accountId);
+    const allDrafts = await storage.getAllDrafts(accountId);
 
     let updatedEmails: Email[];
     if (since) {

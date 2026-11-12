@@ -4,7 +4,7 @@ import { logger } from './logger';
 
 let supabaseClient: SupabaseClient | null = null;
 
-if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
+if (env.NODE_ENV !== 'test' && !process.env.VITEST && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
   try {
     supabaseClient = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
       auth: {

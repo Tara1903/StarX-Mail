@@ -12,7 +12,7 @@ export class ResendService {
   private getClient(apiKeyOverride?: string): Resend {
     const key = apiKeyOverride || storage.getResendApiKeySync();
     if (!key) {
-      throw new Error('Resend API key is not configured.');
+      throw new Error('Resend API key is not configured for this account.');
     }
     return new Resend(key);
   }
@@ -26,11 +26,23 @@ export class ResendService {
       const result = await client.domains.list();
 
       if (result.error) {
+        // Resend Sending-only keys cannot call domains.list() (403 restricted_api_key)
+        // Check if error is permission restriction vs invalid/revoked key
+        const errName = (result.error as any).name || '';
+        const errMsg = result.error.message || '';
+        if (errName === 'restricted_api_key' || errMsg.toLowerCase().includes('restricted')) {
+          logger.info('Resend API key is valid (sending-only restricted permissions)');
+          return {
+            valid: true,
+            domains: [],
+          };
+        }
+
         logger.warn({ error: result.error }, 'Resend API key validation failed');
         return {
           valid: false,
           domains: [],
-          message: result.error.message || 'Invalid Resend API key',
+          message: errMsg || 'Invalid Resend API key',
         };
       }
 
@@ -80,13 +92,43 @@ export class ResendService {
   }
 
   /**
+   * Add a custom domain to the user's Resend account
+   */
+  public async createDomain(
+    name: string,
+    region: string = 'us-east-1',
+    apiKeyOverride?: string
+  ): Promise<DomainInfo> {
+    const client = this.getClient(apiKeyOverride);
+    const result = await client.domains.create({
+      name: name.trim().toLowerCase(),
+      region: region as any,
+    });
+
+    if (result.error || !result.data) {
+      throw new Error(result.error?.message || 'Failed to add domain to Resend');
+    }
+
+    return this.mapDomain(result.data);
+  }
+
+  /**
    * Trigger domain verification
    */
-  public async verifyDomain(domainId: string): Promise<any> {
-    const client = this.getClient();
+  public async verifyDomain(domainId: string, apiKeyOverride?: string): Promise<DomainInfo | any> {
+    const client = this.getClient(apiKeyOverride);
     const result = await client.domains.verify(domainId);
     if (result.error) {
       throw new Error(`Domain verification failed: ${result.error.message}`);
+    }
+
+    try {
+      const detail = await client.domains.get(domainId);
+      if (detail.data) {
+        return this.mapDomain(detail.data);
+      }
+    } catch {
+      // Fallback to raw verify output
     }
     return result.data;
   }
@@ -116,7 +158,7 @@ export class ResendService {
         name: item.name || 'Default Inbox',
         fromName: item.from_name || item.fromName,
         forwarding: item.forwarding ?? false,
-        status: (item.status === 'active' || !item.status) ? 'active' : item.status,
+        status: item.status === 'active' || !item.status ? 'active' : item.status,
         createdAt: item.created_at || new Date().toISOString(),
       }));
     } catch (error: any) {
@@ -128,13 +170,16 @@ export class ResendService {
   /**
    * Create an inbox
    */
-  public async createInbox(params: {
-    emailAddress: string;
-    name: string;
-    fromName?: string;
-    forwarding?: boolean;
-  }): Promise<InboxInfo> {
-    const client = this.getClient() as any;
+  public async createInbox(
+    params: {
+      emailAddress: string;
+      name: string;
+      fromName?: string;
+      forwarding?: boolean;
+    },
+    apiKeyOverride?: string
+  ): Promise<InboxInfo> {
+    const client = this.getClient(apiKeyOverride) as any;
     try {
       let res: any;
       if (typeof client.inboxes?.create === 'function') {
@@ -174,9 +219,13 @@ export class ResendService {
   }
 
   /**
-   * Automatically provision inbound / outbound webhook
+   * Automatically provision inbound / outbound webhook for a specific tenant account
    */
-  public async provisionWebhook(endpointUrl: string, apiKeyOverride?: string): Promise<{ id: string; signingSecret: string }> {
+  public async provisionWebhook(
+    endpointUrl: string,
+    apiKeyOverride?: string,
+    accountId?: string
+  ): Promise<{ id: string; signingSecret: string; configured: boolean }> {
     const client = this.getClient(apiKeyOverride) as any;
     const events = [
       'email.sent',
@@ -204,24 +253,33 @@ export class ResendService {
       }
 
       if (res?.error) {
-        logger.warn({ error: res.error }, 'Webhook automatic provisioning returned error, fallback to manual secret');
+        logger.warn({ error: res.error }, 'Webhook automatic provisioning returned error');
+        const existingSecret = await storage.getWebhookSigningSecret(accountId);
         return {
           id: `wh_${Date.now()}`,
-          signingSecret: storage.getWebhookSigningSecret() || 'whsec_starx_default_secret',
+          signingSecret: existingSecret || '',
+          configured: !!existingSecret,
         };
       }
 
       const id = res.data?.id || `wh_${Date.now()}`;
-      const signingSecret = res.data?.signing_secret || res.data?.signingSecret || storage.getWebhookSigningSecret() || 'whsec_starx_default_secret';
+      const signingSecret =
+        res.data?.signing_secret ||
+        res.data?.signingSecret ||
+        (await storage.getWebhookSigningSecret(accountId)) ||
+        '';
 
-      storage.setWebhookSigningSecret(signingSecret, id);
-      return { id, signingSecret };
+      if (signingSecret) {
+        await storage.setWebhookSigningSecret(signingSecret, id, accountId);
+      }
+      return { id, signingSecret, configured: true };
     } catch (error: any) {
       logger.warn({ error: error.message }, 'Failed to auto-register webhook with Resend');
-      const fallbackSecret = storage.getWebhookSigningSecret() || 'whsec_starx_default_secret';
+      const existingSecret = await storage.getWebhookSigningSecret(accountId);
       return {
         id: `wh_${Date.now()}`,
-        signingSecret: fallbackSecret,
+        signingSecret: existingSecret || '',
+        configured: !!existingSecret,
       };
     }
   }
@@ -229,10 +287,15 @@ export class ResendService {
   /**
    * Send email via Resend
    */
-  public async sendEmail(payload: SendEmailRequest, apiKeyOverride?: string): Promise<{ id: string }> {
+  public async sendEmail(
+    payload: SendEmailRequest,
+    apiKeyOverride?: string,
+    accountId?: string
+  ): Promise<{ id: string }> {
     const client = this.getClient(apiKeyOverride);
 
-    const fromAddress = payload.from || (await storage.getAccountAsync())?.defaultFromAddress || 'onboarding@resend.dev';
+    const account = accountId ? await storage.getAccountAsync(accountId) : null;
+    const fromAddress = payload.from || account?.defaultFromAddress || 'onboarding@resend.dev';
 
     const attachmentsFormatted = payload.attachments?.map((att) => ({
       filename: att.filename,
@@ -287,15 +350,33 @@ export class ResendService {
   }
 
   /**
-   * Retrieve email details from Resend
+   * Retrieve sent email details from Resend
    */
-  public async getEmail(id: string): Promise<any> {
-    const client = this.getClient();
+  public async getEmail(id: string, apiKeyOverride?: string): Promise<any> {
+    const client = this.getClient(apiKeyOverride);
     const result = await client.emails.get(id);
     if (result.error) {
       throw new Error(`Failed to get email from Resend: ${result.error.message}`);
     }
     return result.data;
+  }
+
+  /**
+   * Retrieve full inbound email body & attachments via Resend Receiving API
+   */
+  public async getReceivedEmail(emailId: string, apiKeyOverride?: string): Promise<any | null> {
+    try {
+      const client = this.getClient(apiKeyOverride) as any;
+      if (typeof client.emails?.receiving?.get === 'function') {
+        const res = await client.emails.receiving.get(emailId);
+        if (!res?.error && res?.data) return res.data;
+      }
+      const res = await client.get(`/emails/receiving/${emailId}`);
+      if (!res?.error && res?.data) return res.data;
+    } catch (err: any) {
+      logger.debug({ err: err.message, emailId }, 'Could not fetch receiving email body from Resend');
+    }
+    return null;
   }
 
   private mapDomain(d: any): DomainInfo {

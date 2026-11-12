@@ -2,6 +2,7 @@ package app.starx.mail.data.local
 
 import androidx.room.TypeConverter
 import app.starx.mail.core.model.DeliveryStatus
+import app.starx.mail.core.model.Domain
 import app.starx.mail.core.model.EmailFolder
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -18,6 +19,18 @@ class Converters {
     fun toStringList(value: String?): List<String> {
         if (value.isNullOrBlank()) return emptyList()
         val type = object : TypeToken<List<String>>() {}.type
+        return gson.fromJson(value, type) ?: emptyList()
+    }
+
+    @TypeConverter
+    fun fromDomainList(value: List<Domain>?): String {
+        return gson.toJson(value ?: emptyList<Domain>())
+    }
+
+    @TypeConverter
+    fun toDomainList(value: String?): List<Domain> {
+        if (value.isNullOrBlank()) return emptyList()
+        val type = object : TypeToken<List<Domain>>() {}.type
         return gson.fromJson(value, type) ?: emptyList()
     }
 

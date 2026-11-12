@@ -6,7 +6,7 @@ import { inboxController } from '../controllers/inboxController';
 import { syncController } from '../controllers/syncController';
 import { webhookController } from '../controllers/webhookController';
 import { notificationController } from '../controllers/notificationController';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, optionalAuth } from '../middleware/auth';
 import { apiRateLimiter, setupRateLimiter, sendRateLimiter } from '../middleware/rateLimit';
 
 const router = Router();
@@ -16,9 +16,12 @@ router.get('/health', (_req, res) => {
   res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// Setup & Account
+// Setup, Account & Domain Management
 router.post('/setup/connect', setupRateLimiter, (req, res) => setupController.connect(req, res));
-router.get('/setup/status', apiRateLimiter, (req, res) => setupController.getStatus(req, res));
+router.get('/setup/status', apiRateLimiter, optionalAuth, (req, res) => setupController.getStatus(req, res));
+router.post('/setup/domains', requireAuth, (req, res) => setupController.addDomain(req, res));
+router.post('/setup/domains/:domainId/verify', requireAuth, (req, res) => setupController.verifyDomain(req, res));
+router.patch('/setup/default-sender', requireAuth, (req, res) => setupController.updateDefaultSender(req, res));
 router.post('/setup/disconnect', requireAuth, (req, res) => setupController.disconnect(req, res));
 
 // Inboxes
@@ -50,7 +53,8 @@ router.get('/sync', requireAuth, (req, res) => syncController.sync(req, res));
 router.post('/notifications/token', requireAuth, (req, res) => notificationController.registerToken(req, res));
 router.delete('/notifications/token', requireAuth, (req, res) => notificationController.unregisterToken(req, res));
 
-// Webhooks
+// Webhooks (tenant-isolated route + legacy compatible route)
+router.post('/webhooks/resend/:accountId', (req, res) => webhookController.handleResendWebhook(req, res));
 router.post('/webhooks/resend', (req, res) => webhookController.handleResendWebhook(req, res));
 
 export default router;

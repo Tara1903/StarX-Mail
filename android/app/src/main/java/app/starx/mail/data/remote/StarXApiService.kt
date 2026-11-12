@@ -18,6 +18,21 @@ interface StarXApiService {
     @POST("setup/disconnect")
     suspend fun disconnect(): Response<SimpleMessageResponseDto>
 
+    @POST("setup/domains")
+    suspend fun addDomain(
+        @Body request: AddDomainRequestDto
+    ): Response<DomainActionResponseDto>
+
+    @POST("setup/domains/{domainId}/verify")
+    suspend fun verifyDomain(
+        @Path("domainId") domainId: String
+    ): Response<DomainActionResponseDto>
+
+    @PATCH("setup/default-sender")
+    suspend fun updateDefaultSender(
+        @Body request: UpdateDefaultSenderRequestDto
+    ): Response<UpdateDefaultSenderResponseDto>
+
     @GET("emails")
     suspend fun getEmails(
         @Query("folder") folder: String? = null,

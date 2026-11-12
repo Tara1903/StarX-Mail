@@ -15,7 +15,7 @@ import app.starx.mail.data.local.entity.*
         InboxEntity::class,
         SyncStateEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

@@ -85,13 +85,30 @@ class ComposeViewModel @Inject constructor(
         viewModelScope.launch {
             accountRepository.getAccount().collect { account ->
                 account?.let { acc ->
-                    val inboxes = acc.inboxes.map { it.emailAddress }
-                    val defaultFrom = acc.defaultFromAddress.ifBlank {
-                        inboxes.firstOrNull() ?: "onboarding@resend.dev"
+                    val candidates = linkedSetOf<String>()
+                    if (acc.defaultFromAddress.isNotBlank()) {
+                        candidates.add(acc.defaultFromAddress)
                     }
-                    _availableFromAddresses.value = if (inboxes.isNotEmpty()) inboxes else listOf(defaultFrom)
+                    acc.inboxes.forEach { inbox ->
+                        if (inbox.emailAddress.isNotBlank()) {
+                            candidates.add(inbox.emailAddress)
+                        }
+                    }
+                    acc.domains
+                        .filter { it.status == "verified" && it.name.isNotBlank() }
+                        .forEach { domain ->
+                            candidates.add("mail@${domain.name}")
+                            candidates.add("hello@${domain.name}")
+                            candidates.add("support@${domain.name}")
+                            candidates.add("noreply@${domain.name}")
+                        }
+                    if (candidates.isEmpty()) {
+                        candidates.add("onboarding@resend.dev")
+                    }
+                    val list = candidates.toList()
+                    _availableFromAddresses.value = list
                     if (_fromAddress.value.isBlank()) {
-                        _fromAddress.value = defaultFrom
+                        _fromAddress.value = list.first()
                     }
                 }
             }

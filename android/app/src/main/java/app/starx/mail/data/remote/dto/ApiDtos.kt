@@ -5,7 +5,30 @@ import com.google.gson.annotations.SerializedName
 data class SetupConnectRequestDto(
     @SerializedName("resendApiKey") val resendApiKey: String,
     @SerializedName("backendUrl") val backendUrl: String? = null,
-    @SerializedName("preferredEmailPrefix") val preferredEmailPrefix: String? = null
+    @SerializedName("preferredEmailPrefix") val preferredEmailPrefix: String? = null,
+    @SerializedName("preferredFromAddress") val preferredFromAddress: String? = null
+)
+
+data class AddDomainRequestDto(
+    @SerializedName("name") val name: String,
+    @SerializedName("region") val region: String = "us-east-1"
+)
+
+data class DomainActionResponseDto(
+    @SerializedName("success") val success: Boolean,
+    @SerializedName("domain") val domain: DomainDto? = null,
+    @SerializedName("domains") val domains: List<DomainDto> = emptyList(),
+    @SerializedName("message") val message: String
+)
+
+data class UpdateDefaultSenderRequestDto(
+    @SerializedName("defaultFromAddress") val defaultFromAddress: String
+)
+
+data class UpdateDefaultSenderResponseDto(
+    @SerializedName("success") val success: Boolean,
+    @SerializedName("account") val account: AccountDto,
+    @SerializedName("message") val message: String
 )
 
 data class SetupConnectResponseDto(

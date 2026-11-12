@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { fcmService } from '../services/fcmService';
 import { storage } from '../services/storage';
+import { AuthenticatedRequest } from '../middleware/auth';
 
 const registerTokenSchema = z.object({
   token: z.string().min(1, 'Token is required'),
@@ -17,7 +18,8 @@ export class NotificationController {
       return;
     }
 
-    const account = storage.getAccount();
+    const accountId = (req as AuthenticatedRequest).user!.accountId;
+    const account = await storage.getAccountAsync(accountId);
     if (!account) {
       res.status(401).json({ error: 'Unauthorized', message: 'No active account found' });
       return;

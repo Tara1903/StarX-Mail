@@ -1,8 +1,8 @@
 const jwt = require('jsonwebtoken');
 
-const BACKEND_URL = 'https://starx-mail-backend.vercel.app/api/v1';
-const JWT_SECRET = 'starx_production_jwt_secret_key_987654321_secure';
-const ACCOUNT_ID = 'cad74dbf-7bfa-4caf-beed-a04db820a5d5';
+const BACKEND_URL = process.env.E2E_BACKEND_URL || 'https://starx-mail-backend.vercel.app/api/v1';
+const JWT_SECRET = process.env.E2E_JWT_SECRET || 'starx_production_jwt_secret_key_987654321_secure';
+const ACCOUNT_ID = process.env.E2E_ACCOUNT_ID || '07b4ba1f-4d85-444e-a45e-de150a16896c';
 
 async function runLiveTests() {
   console.log('====================================================');
@@ -32,12 +32,13 @@ async function runLiveTests() {
     if (data.status !== 'healthy') throw new Error(`Status was ${data.status}`);
   });
 
-  // 2. Setup Status Check
-  await test('GET /setup/status returns account status', async () => {
+  // 2. Setup Status Check (Unauthenticated should NOT leak another tenant's account)
+  await test('GET /setup/status without auth reports not connected (multi-tenant safe)', async () => {
     const res = await fetch(`${BACKEND_URL}/setup/status`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (typeof data.connected !== 'boolean') throw new Error('Expected boolean connected flag');
+    if (data.connected !== false) throw new Error('Expected connected:false when unauthenticated');
+    if (data.account) throw new Error('Unauthenticated /setup/status leaked account data');
   });
 
   // Generate valid session token
@@ -46,6 +47,44 @@ async function runLiveTests() {
     JWT_SECRET,
     { expiresIn: '90d' }
   );
+
+  // 2b. Authenticated Setup Status Check
+  await test('GET /setup/status with Bearer token returns authenticated tenant status', async () => {
+    const res = await fetch(`${BACKEND_URL}/setup/status`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.connected !== true || data.account?.id !== ACCOUNT_ID) {
+      throw new Error(`Expected connected:true for ${ACCOUNT_ID}, got ${JSON.stringify(data)}`);
+    }
+  });
+
+  // 2c. Multi-Tenant Isolation Check (another tenant token must NOT see ACCOUNT_ID data)
+  await test('GET /setup/status and /emails with another tenant token are isolated', async () => {
+    const otherToken = jwt.sign(
+      { accountId: '11111111-1111-4111-8111-111111111111', resendConnected: true },
+      JWT_SECRET,
+      { expiresIn: '5m' }
+    );
+    const statusRes = await fetch(`${BACKEND_URL}/setup/status`, {
+      headers: { Authorization: `Bearer ${otherToken}` }
+    });
+    if (!statusRes.ok) throw new Error(`HTTP ${statusRes.status}`);
+    const statusData = await statusRes.json();
+    if (statusData.connected !== false) {
+      throw new Error(`Other tenant saw connected account: ${JSON.stringify(statusData)}`);
+    }
+
+    const emailsRes = await fetch(`${BACKEND_URL}/emails?folder=inbox`, {
+      headers: { Authorization: `Bearer ${otherToken}` }
+    });
+    if (!emailsRes.ok) throw new Error(`HTTP ${emailsRes.status}`);
+    const emailsData = await emailsRes.json();
+    if (!Array.isArray(emailsData.emails) || emailsData.emails.length > 0) {
+      throw new Error(`Other tenant leaked emails: count=${emailsData.emails?.length}`);
+    }
+  });
 
   // 3. Authenticated Emails List
   await test('GET /emails with Bearer token', async () => {

@@ -36,6 +36,7 @@ fun ComposeScreen(
 
     var showCcBcc by remember { mutableStateOf(false) }
     var fromExpanded by remember { mutableStateOf(false) }
+    var isCustomFrom by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
 
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -136,21 +137,36 @@ fun ComposeScreen(
                 )
 
                 Box(modifier = Modifier.weight(1f)) {
-                    OutlinedButton(
-                        onClick = { fromExpanded = true },
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                    if (isCustomFrom) {
+                        OutlinedTextField(
+                            value = fromAddress,
+                            onValueChange = viewModel::onFromAddressChanged,
+                            placeholder = { Text("alias@yourdomain.com") },
+                            singleLine = true,
+                            trailingIcon = {
+                                IconButton(onClick = { isCustomFrom = false }) {
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Show presets")
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        OutlinedButton(
+                            onClick = { fromExpanded = true },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = fromAddress.ifBlank { "Select sender" },
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = fromAddress.ifBlank { "Select sender" },
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                            }
                         }
                     }
 
@@ -162,11 +178,21 @@ fun ComposeScreen(
                             DropdownMenuItem(
                                 text = { Text(address) },
                                 onClick = {
+                                    isCustomFrom = false
                                     viewModel.onFromAddressChanged(address)
                                     fromExpanded = false
                                 }
                             )
                         }
+                        Divider()
+                        DropdownMenuItem(
+                            text = { Text("Custom sender address...", fontWeight = FontWeight.SemiBold) },
+                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                            onClick = {
+                                isCustomFrom = true
+                                fromExpanded = false
+                            }
+                        )
                     }
                 }
             }
