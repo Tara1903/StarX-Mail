@@ -98,17 +98,30 @@ fun SettingsScreen(
                             fontWeight = FontWeight.Bold
                         )
 
+                        val isAccountConnected = account?.connected == true
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = StarXSuccessGreen.copy(alpha = 0.15f)
+                            color = if (isAccountConnected) StarXSuccessGreen.copy(alpha = 0.15f)
+                            else MaterialTheme.colorScheme.errorContainer
                         ) {
                             Text(
-                                text = "Connected",
-                                color = StarXSuccessGreen,
+                                text = if (isAccountConnected) "Connected" else "Reconnect Needed",
+                                color = if (isAccountConnected) StarXSuccessGreen else MaterialTheme.colorScheme.onErrorContainer,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
+                        }
+                    }
+
+                    if (account?.connected != true) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { viewModel.disconnect(onDisconnected) },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Session Expired — Reconnect Resend Key", fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -192,13 +205,16 @@ fun SettingsScreen(
                         Text(
                             text = "Domains & DNS (${account?.domains?.size ?: 0})",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
 
                         TextButton(onClick = { showAddDomainDialog = true }) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Add Domain")
+                            Text("Add Domain", maxLines = 1, softWrap = false)
                         }
                     }
 
@@ -468,6 +484,12 @@ fun SettingsScreen(
             confirmButton = {
                 Button(onClick = {
                     val clean = domainName.trim()
+                        .lowercase()
+                        .substringAfter('@')
+                        .removePrefix("https://")
+                        .removePrefix("http://")
+                        .substringBefore('/')
+                        .trimEnd('.')
                     if (clean.isNotBlank()) {
                         viewModel.addDomain(clean)
                         showAddDomainDialog = false

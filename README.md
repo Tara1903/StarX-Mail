@@ -42,12 +42,12 @@ The StarX Mail production cloud stack is deployed and actively operating:
 
 ### 📦 Production Release APK Details
 - **File**: `StarX-Mail-release.apk`
-- **Size**: `5,200,126 bytes` (~4.96 MB)
+- **Size**: `5,200,133 bytes` (~4.96 MB)
 - **Minification & Obfuscation**: R8 fully enabled (`isMinifyEnabled = true`, `isShrinkResources = true`)
 - **Signature Scheme**: APK Signature Scheme v2 (Signed with RSA 2048-bit key)
 - **SHA-256 Checksum**:
   ```
-  570B4553073C083317F95BACC56FC350C7032EC6DF01104BE7F9306D5D9FD313
+  8231E8F92FFF5B735C2377CBFFA956334EE081EC2A3EA951B2C387DEAE3251B0
   ```
 
 ---

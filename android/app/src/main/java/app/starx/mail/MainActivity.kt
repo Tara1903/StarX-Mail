@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
 import androidx.navigation.compose.rememberNavController
+import app.starx.mail.core.network.AuthInterceptor
 import app.starx.mail.core.security.BiometricAuthManager
 import app.starx.mail.core.util.Constants
 import app.starx.mail.data.repository.dataStore
@@ -37,6 +38,9 @@ class MainActivity : FragmentActivity() {
 
     @Inject
     lateinit var biometricAuthManager: BiometricAuthManager
+
+    @Inject
+    lateinit var authInterceptor: AuthInterceptor
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,6 +95,15 @@ class MainActivity : FragmentActivity() {
                         }
                     } else {
                         val navController = rememberNavController()
+
+                        LaunchedEffect(authInterceptor) {
+                            authInterceptor.sessionExpiredEvents.collect {
+                                authRepository.disconnect()
+                                navController.navigate(Screen.Onboarding.route) {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            }
+                        }
 
                         // Handle incoming notification intent navigation
                         LaunchedEffect(intent) {

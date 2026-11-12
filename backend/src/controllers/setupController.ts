@@ -17,11 +17,25 @@ const connectSchema = z.object({
   preferredFromAddress: z.string().email().optional(),
 });
 
+const normalizeDomainInput = (val: unknown): string => {
+  if (typeof val !== 'string') return '';
+  let cleaned = val.trim().toLowerCase();
+  if (cleaned.includes('@')) {
+    cleaned = cleaned.split('@').pop() || cleaned;
+  }
+  cleaned = cleaned.replace(/^https?:\/\//, '');
+  cleaned = cleaned.split('/')[0].split('?')[0].split('#')[0];
+  return cleaned.replace(/\.+$/, '').trim();
+};
+
 const addDomainSchema = z.object({
-  name: z
-    .string()
-    .min(3, 'Domain name is required')
-    .regex(/^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/, 'Enter a valid domain name (e.g. yourdomain.com)'),
+  name: z.preprocess(
+    normalizeDomainInput,
+    z
+      .string()
+      .min(3, 'Domain name is required')
+      .regex(/^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/, 'Enter a valid domain name (e.g. yourdomain.com)')
+  ),
   region: z.string().optional().default('us-east-1'),
 });
 

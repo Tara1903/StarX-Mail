@@ -1,5 +1,8 @@
 package app.starx.mail.core.network
 
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.Response
@@ -13,6 +16,9 @@ class AuthInterceptor @Inject constructor() : Interceptor {
 
     @Volatile
     private var customBaseUrl: String? = null
+
+    private val _sessionExpiredEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val sessionExpiredEvents: SharedFlow<Unit> = _sessionExpiredEvents.asSharedFlow()
 
     fun setToken(newToken: String?) {
         this.token = newToken
@@ -48,6 +54,11 @@ class AuthInterceptor @Inject constructor() : Interceptor {
             }
         }
 
-        return chain.proceed(requestBuilder.build())
+        val response = chain.proceed(requestBuilder.build())
+        val path = original.url.encodedPath
+        if (response.code == 401 && !currentToken.isNullOrBlank() && !path.endsWith("setup/connect")) {
+            _sessionExpiredEvents.tryEmit(Unit)
+        }
+        return response
     }
 }
